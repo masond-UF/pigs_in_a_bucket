@@ -1,0 +1,96 @@
+---
+title: "Garbage can analysis"
+author: "David S. Mason"
+date: "5/7/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+This was an experiment designed to explore how carrion biomass and vertebrate scavenegers modulate decomposition rates. Individual pig carcasses were exposed to other decomposing carrion at increasing levels of biomass with and without vertebrate exclusion. After a time period, these individual carcasses werer returned to  This is a factorial design crossing exposure biomass with vertebrate exclusion. There are six observations, one for each combination of carrion biomass and vertebrate exclusion (i.e., no replication). 
+
+With the low number of observations in the dataset, we will run afoul of rules of thumb regarding observations per parameter in a traditional linear model framework. If treating each predictor as a factor, which may not make sense for the carrion exposure biomass, a linear model in this case is essentially a two-factor anova. If we include the interaction term, I think this essentially becomes a fully saturated model (i.e., there is nothing to predict and no variance because the model is just describing the data and not a mean or variance). 
+
+Permutation and boostrapping are two approaches for dealing with lack of replication. Permutation is appropriate for testing for presence/absence of effects between group; bootstrapping is appropriate for estimating parameters of sampling distributions. While both could hypothetically work, permutation best fits the aim of our experimental design.
+
+The permutation based anova essentially rerranges the values of variables many times to generate a distribution of the test statistic. This test statistic is F for anova (or pseudo-f here), which is a ratio of between and among group variation. Based on where our actual observed test statistic is, we can get a significance value. Indeed, both treatments are significant. Unfortunately, this approach is not able to deal with the predictors as interacting variables. I am geting the error "no repetition of FENCE:EXPOSURE, ANOVA without interaction," which I am unsure about.
+
+I also explored an approach that uses bootsrapping. I could not use the more conservative and common approach of rearranging rows because of the following warning: "contrasts can be applied only to factors with 2 or more levels." I think this message is referring to the fact that in the model object, one of the two levels of fencing is absorbed into the intercept, leaving only one remaining. Instead, I used the approach of resampling residuals, which is used in experiments with fixed effects (like ours). 
+
+## TLDR Final analysis
+
+We still need an approach that fits our data and goals: a nonparametric, permutation-based ancova-like analysis fit for saturated models. Section 2.6 of the supporting document for the lmPerm package provides such an anlysis (Wheeler 2016). The result of this analysis is significant for both treatments and their interaction. 
+
+
+## Load packages and bring in the data
+```{r setup, echo=FALSE}
+d.tmp <- read.csv("Data/garbage_can.csv")
+
+library(tidyverse)
+library(RVAideMemoire)
+library(simpleboot)
+library(sm)
+library(lmPerm)
+library(multcomp)
+library(car)
+```
+## Calculate the change in biomass
+```{r}
+d <- d.tmp %>% 
+	mutate(LOST_BIO = abs(PIG_FINAL-PIG_START))
+```
+## Final model using ancova with permutation
+```{r}
+mod3 <- lmp(LOST_BIO~FENCE*EXPOSURE, data=d)
+summary(mod3) 
+summary(mod3)$r.squared
+Anova(mod3)
+
+# Fence increased biomass lost by 1.19 kg
+# 1 kg increase in biomass exposure increased biomass lost by 0.003 kg
+# That slope is 0.001 higher in Fence (0.004 kg) 
+
+sem <- function(x, na.rm=FALSE){
+		out <- sd(x, na.rm = na.rm)/sqrt(length(x))
+		return(out)
+}
+
+d %>% group_by(FENCE) %>% 
+	summarise(mean = mean(LOST_BIO),
+						sd = mean(LOST_BIO),
+						se = sem(LOST_BIO))
+
+d %>% group_by(EXPOSURE) %>% 
+	summarise(mean = mean(LOST_BIO),
+						sd = mean(LOST_BIO),
+						se = sem(LOST_BIO))
+```
+
+## Visualize the model
+```{r, echo=FALSE}
+
+levels(d$FENCE) <- c("Fenced","Open")
+
+ggplot(d,aes(y=LOST_BIO,x=log(EXPOSURE),color=FENCE,fill=FENCE))+
+	geom_point(size = 6.5,shape=21,stroke=2)+
+	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
+	scale_color_manual(values=c("black","black"))+
+	stat_smooth(method="lm",se=FALSE,show.legend = FALSE)+
+	scale_x_continuous(name="Biomass treatment (kg)",
+										 breaks=c(4.007333,5.991465,7.377759),
+										 labels=c("55","400","1600"))+
+	ylab("Lost biomass (kg)")+
+	theme_classic()+
+	theme(legend.title = element_blank())+
+	theme(legend.position = c(0.17, 0.92))+
+	theme(text = element_text(size = 25))+
+	theme(axis.title.x = element_text(face="bold"))+
+	theme(axis.title.y = element_text(face="bold", vjust=0.7))+
+		 guides(fill=guide_legend(
+                 keyheight=0.4,
+                 default.unit="inch"))
+
+ggsave('garbage_can.jpg', width = 6, height = 6, dpi = 300)
+```
+
+## The y axis is the absolute value in change in biomass, and the x axis is log-transformed. The labels are back-transformed for interpretability. 
+
