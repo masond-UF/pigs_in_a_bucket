@@ -1,4 +1,4 @@
-﻿Day,Month,Year,Site,Pig,Fence,Duration,Biomass,Obs1tot,Obs1rate,Obs2tot,Obs2rate,Obs3tot,Obs3rate,Obs4tot,Obs4rate,SUMrate,NumObs,AVGrate
+﻿Day,Month,Year,Site,Pig,Fence,Duration,Biomass,Obs1_tot,Obs1_rate,Obs2_tot,Obs2_rate,Obs3_tot,Obs3_rate,Obs4_tot,Obs4_rate,SUMrate,NumObs,AVGrate
 13,July,2016,1,Y,F,1440,55,29,0.020138889,44,0.030555556,NA,NA,NA,NA,0.050694444,2,0.025347222
 13,July,2016,2,Y,F,1440,130,68,0.047222222,102,0.070833333,NA,NA,NA,NA,0.118055556,2,0.059027778
 13,July,2016,3,Y,F,1440,400,128,0.088888889,112,0.077777778,NA,NA,NA,NA,0.166666667,2,0.083333333
