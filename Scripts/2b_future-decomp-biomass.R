@@ -15,6 +15,7 @@ library(fitdistrplus)
 library(performance)
 library(car)
 library(emmeans)
+library(patchwork)
 
 # Clear the deck
 rm(list=ls())
@@ -113,8 +114,8 @@ ggplot(d,aes(y=LOST_BIO,x=log(EXPOSURE),color=FENCE,fill=FENCE))+
 # Main figure
 p1 <- ggplot(data=pred.dat, aes(x = EXPOSURE, y = fit, color = FENCE))+
 	geom_line(linewidth = 1.75)+
-	geom_ribbon(aes(ymin = LCL, ymax = UCL, fill = FENCE), 
-							alpha = 0.4, color = NA)+
+	# geom_ribbon(aes(ymin = LCL, ymax = UCL, fill = FENCE), 
+							# alpha = 0.4, color = NA)+
 	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
 	scale_color_manual(values = c('black', 'black'))+
 	geom_point(data = d, aes(x = EXPOSURE, y = LOST_BIO, fill = FENCE), 

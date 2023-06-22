@@ -62,9 +62,9 @@ d.lg <- d.lg |>
 	mutate(Flies.hr = Flies.sec*60)
 d.lg$Flies.hr <- round(d.lg$Flies.hr)
 
-# Days since start of experiment
+# Days since start of experiment [15 days would be 2016-06-28]
 d.lg <- d.lg |>
-	mutate(Days.since.start = as.numeric(ymd(Date) - ymd('2016-07-9')))
+	mutate(Days.since.start = as.numeric(ymd(Date) - ymd('2016-07-5')))
 
 d.lg$Fence <- as_factor(d.lg$Fence)
 d.lg$Biomass <- as.numeric(d.lg$Biomass)
@@ -207,7 +207,7 @@ ggplot(data=d.lg, aes(x = Biomass, y = log(flies.hr), group = Fence, color = Fen
 ## --------------- Visualize predict -------------------------------------------
 
 # Create new data frame to predict from
-pred.dat <- data.frame(Days.since.start = rep(seq(4,26,1),3092),
+pred.dat <- data.frame(Days.since.start = rep(seq(8,30,1),3092),
 											 Biomass = rep(seq(55,1600,1), 46),
 											 Fence = c(rep('F', 35558),rep('O',35558)))
 
@@ -255,6 +255,31 @@ biomass.int <- ggplot(data=pred.dat.avg.date, aes(x = Biomass, y = exp(fit), col
 	
 ## --------------- Visualize Fence*Time ----------------------------------------
 
+# Days alone no interaction with weight
+days <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(fit), color = Fence))+
+	geom_ribbon(aes(ymin = exp(LCL), ymax = exp(UCL), fill = Fence), 
+							alpha = 0.4, color = NA)+
+	geom_line()+
+	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
+	geom_jitter(data=d.lg, aes(x = Days.since.start, y = Flies.hr, 
+														 group = Fence, fill = Fence),
+							size = 2, stroke = 0.75, pch = 21, height = 0, width = 0.5,
+							color = 'black')+
+	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
+	scale_y_continuous(limits = c(0,200))+
+	scale_x_continuous(limits = c(5,31),
+										 breaks = c(5,10,15,20,25, 30))+
+	theme_classic()+
+	theme(legend.position = 'none')+
+	ylab("")+
+	xlab('Days since deployment')+
+	theme(axis.title = element_text(face="bold"))+
+	theme(axis.text = element_text(size = 25),
+				axis.title = element_text(size = 30))
+ggsave('Figures/2_fly-surveys-time-ALL-SI.png',width = 7, height = 11, units = 'in', dpi = 300)
+
+
+
 # Average by biomass
 pred.dat.avg.biomass <- pred.dat |> 
 	group_by(Days.since.start, Fence)|>
@@ -274,8 +299,8 @@ days.int <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(
 							color = 'black')+
 	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
 	scale_y_continuous(limits = c(0,200))+
-	scale_x_continuous(limits = c(3,28),
-										 breaks = c(0,5,10,15,20,25))+
+	scale_x_continuous(limits = c(5,31),
+										 breaks = c(5,10,15,20,25, 30))+
 	theme_classic()+
 	theme(legend.position = 'none')+
 	ylab("")+
@@ -331,7 +356,6 @@ coef <- tibble(Fence = c('Fenced', 'Open', 'Fenced', 'Open'),
 # For every 5 days, flies decreased by 9% in fenced plots
 # For every 10 days, flies decreased by 18% in fenced plots
 # At 4 days flies = 30, at 20 days flies = 25
-
 
 biomass <- coef |> filter(Trend == 'Biomass')
 days <- coef |> filter(Trend == 'Days')
@@ -464,22 +488,25 @@ days.coef <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 # Raw biomass
 dev.new()
 biomass.int+inset_element(biomass.coef, 0.2, 0.6, 0.6, 1, align_to = 'full')
-# ggsave('Figures/1_fly-surveys.png',width = 12, height = 10, units = 'in', dpi = 300)
+ggsave('Figures/1_fly-surveys.png',width = 12, height = 10, units = 'in', dpi = 300)
 
 # New
 dev.new()
 biomass.int+inset_element(biomass.coef, 0.2, 0.6, 0.6, 1, align_to = 'full')
-ggsave('Figures/1_fly-surveys.png', width = 6, height = 12, units = 'in', dpi = 300)
+# ggsave('Figures/1_fly-surveys.png', width = 6, height = 12, units = 'in', dpi = 300)
 
 # Raw days
 dev.new()
 days.int+inset_element(days.coef, 0.5445, 0.04, 0.95, 0.355, align_to = 'full')
-# ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
+ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
 
 # New
 dev.new()
 days.int+inset_element(days.coef, 0.5445, 0.04, 0.95, 0.355, align_to = 'full')
-ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
+# ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
+
+days.no.interact <-
+	
 
 
 ## --------------- Export model information ------------------------------------
