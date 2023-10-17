@@ -123,8 +123,8 @@ p1 <- ggplot(data=pred.dat, aes(x = EXPOSURE, y = fit, color = FENCE))+
 	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
 	scale_x_continuous(breaks = c(0, 250, 500, 750, 1000,
 																1250, 1500))+
-	ylab("Biomass loss after X days (kg)")+
-	xlab("Initial biomass exposure (kg)")+
+	ylab("Biomass loss after X days (kg)")+ # experiment starts on July 7, 2016.
+	xlab("Initial biomass exposure (kg)")+ # pigs moved on July 22nd, 2016.
 	theme_classic()+
 	theme(axis.title = element_text(face="bold"))+
 	theme(axis.text = element_text(size = 20),

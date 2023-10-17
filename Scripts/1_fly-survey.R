@@ -30,7 +30,7 @@ library(magick)
 library(broom)
 library(broom.mixed)
 library(tidymodels)
-
+library(lme4)
 options(scipen = 999)
 
 # Clean the decks
@@ -41,6 +41,8 @@ d <- read.csv("Clean-data/1_fly-survey.csv", stringsAsFactors=T)
 head(d)
 summary(d)
 
+# The MME at John Starr started July 5, 2016. We exposed fresh pigs to those 
+# plots for 4hrs on July 22, then they were moved to the common garden location.
 ## --------------- Prepare the data --------------------------------------------
 
 # Create a Date column
@@ -64,7 +66,7 @@ d.lg$Flies.hr <- round(d.lg$Flies.hr)
 
 # Days since start of experiment [15 days would be 2016-06-28]
 d.lg <- d.lg |>
-	mutate(Days.since.start = as.numeric(ymd(Date) - ymd('2016-07-5')))
+	mutate(Days.since.start = as.numeric(ymd(Date) - ymd('2016-07-05')))
 
 d.lg$Fence <- as_factor(d.lg$Fence)
 d.lg$Biomass <- as.numeric(d.lg$Biomass)
@@ -82,14 +84,14 @@ ggplot(d.lg, aes(y=Flies.hr, x=Date, color=Fence))+
 
 ## --------------- Build the model -----------------------------------------------
 
+descdist(d.lg$Flies.hr, discrete = TRUE)
+
 m1 <- glm.nb(Flies.hr ~ Biomass*Fence*Days.since.start, data = d.lg)
 Anova(m1, type = 2)
 
-ggplot(d.lg,aes(x=Biomass,y=Flies.hr,group=Fence)) +
+ggplot(d.lg,aes(x=Biomass,y=Flies.hr,color=Fence)) +
 	geom_point() +
-	stat_smooth(method="glm", 
-	method.args=list(formula=y~x, family="binomial", control=glmerControl()), se=TRUE)
-
+	stat_smooth(method="glm")
 ## --------------- Check the model ---------------------------------------------
 
 # Overall checks
@@ -255,6 +257,14 @@ biomass.int <- ggplot(data=pred.dat.avg.date, aes(x = Biomass, y = exp(fit), col
 	
 ## --------------- Visualize Fence*Time ----------------------------------------
 
+# Average by biomass
+pred.dat.avg.biomass <- pred.dat |> 
+	group_by(Days.since.start, Fence)|>
+	summarize(fit = mean(fit),
+						LCL = mean(LCL),
+						UCL = mean(UCL))
+
+
 # Days alone no interaction with weight
 days <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(fit), color = Fence))+
 	geom_ribbon(aes(ymin = exp(LCL), ymax = exp(UCL), fill = Fence), 
@@ -277,15 +287,6 @@ days <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(fit)
 	theme(axis.text = element_text(size = 25),
 				axis.title = element_text(size = 30))
 ggsave('Figures/2_fly-surveys-time-ALL-SI.png',width = 7, height = 11, units = 'in', dpi = 300)
-
-
-
-# Average by biomass
-pred.dat.avg.biomass <- pred.dat |> 
-	group_by(Days.since.start, Fence)|>
-	summarize(fit = mean(fit),
-						LCL = mean(LCL),
-						UCL = mean(UCL))
 
 dev.new()
 days.int <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(fit), color = Fence))+
@@ -505,8 +506,6 @@ dev.new()
 days.int+inset_element(days.coef, 0.5445, 0.04, 0.95, 0.355, align_to = 'full')
 # ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
 
-days.no.interact <-
-	
 
 
 ## --------------- Export model information ------------------------------------
