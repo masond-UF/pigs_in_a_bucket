@@ -45,6 +45,10 @@ summary(d)
 # plots for 4hrs on July 22, then they were moved to the common garden location.
 ## --------------- Prepare the data --------------------------------------------
 
+# Fix the biomass
+d <- d |>
+	mutate(Biomass = round(Biomass/2.205, 2))
+
 # Create a Date column
 d$Date <- paste(d$Year, d$Month, d$Day, sep="-") %>% ymd() %>% as.Date()
 
@@ -64,7 +68,7 @@ d.lg <- d.lg |>
 	mutate(Flies.hr = Flies.sec*60)
 d.lg$Flies.hr <- round(d.lg$Flies.hr)
 
-# Days since start of experiment [15 days would be 2016-06-28]
+# Days since first observation of flies
 d.lg <- d.lg |>
 	mutate(Days.since.start = as.numeric(ymd(Date) - ymd('2016-07-05')))
 
@@ -82,51 +86,94 @@ ggplot(d.lg, aes(y=Flies.hr, x=Date, color=Fence))+
 	geom_point()+
 	facet_wrap(~Biomass)
 
+
 ## --------------- Build the model -----------------------------------------------
 
 descdist(d.lg$Flies.hr, discrete = TRUE)
 
-m1 <- glm.nb(Flies.hr ~ Biomass*Fence*Days.since.start, data = d.lg)
-Anova(m1, type = 2)
+# Explore mean-variance relationship to assess which negative binomial
+# distribution to use for the raw seeds
+mean.var <- d.lg |>
+	group_by(Biomass, Fence) |>
+	dplyr::summarize(Mean.det = mean(Flies.hr),
+						Var.det = var(Flies.hr))
+q1 <- qplot(Mean.det,Var.det,data=mean.var)
+
+print(q1+
+	## linear (quasi-Poisson/NB1) fit
+	geom_smooth(method="lm",formula=y~x-1)+
+	## smooth (loess)
+	geom_smooth(colour="red")+
+	## semi-quadratic (NB2/LNP)
+	geom_smooth(method="lm",formula=y~I(x^2)+offset(x)-1,colour="purple")+
+	## Poisson (v=m)
+	geom_abline(intercept=0,slope=1,lty=2))
+# blue = nb1
+# purple = nb2
+
+rm(mean.var, q1)
+
+library(glmmTMB)
+m1 <- glmmTMB(Flies.hr ~ Biomass*Fence*Days.since.start, data = d.lg, family = 'nbinom2')
+ggplot(d.lg, aes(x = Days.since.start, y = residuals(m1))) +
+  geom_point() +
+  geom_smooth(method = "loess")
+
+
+d.lg$Days_squared <- d.lg$Days.since.start^2
+d.lg$c.Days.since.start <- scale(d.lg$Days.since.start, center = TRUE, scale = FALSE)
+d.lg$c.Days_squared <- d.lg$c.Days.since.start^2
+
+m2 <- glmmTMB(Flies.hr ~ Biomass*Fence + c.Days.since.start*Fence + c.Days_squared, family = 'nbinom2',
+							data = d.lg)
+ggplot(d.lg, aes(x = Days.since.start, y = residuals(m2))) +
+  geom_point() +
+  geom_smooth(method = "loess")
+
+
+# Compare models
+AIC(m1, m2)  # m2 should be much better
+
+plot(d.lg$Days.since.start, residuals(m2))
+lines(lowess(d.lg$Days.since.start, residuals(m2)), col="red")
+
+Anova(m2, type = 3)
 
 ggplot(d.lg,aes(x=Biomass,y=Flies.hr,color=Fence)) +
 	geom_point() +
 	stat_smooth(method="glm")
+
 ## --------------- Check the model ---------------------------------------------
 
 # Overall checks
 dev.new()
 png(filename="Output/1_Fly-surveys/Check-model.png")
-check_model(m1)
+check_model(m2)
 dev.off()
 
 # VIF
-m1.VIF <- tidy(vif(m1))
-colnames(m1.VIF)[1] <- 'Term'
-colnames(m1.VIF)[2] <- 'VIF'
-m1.VIF$VIF <- round(m1.VIF$VIF, digits = 1)
-htmlTable(m1.VIF) %>%
-	save_kable(file = 'Output/1_Fly-surveys/VIF.png')
+check_collinearity(m2)
 
-sim.m1 <- simulateResiduals(m1)
-plot(sim.m1)
+# Simulated residuals
+sim.m2 <- simulateResiduals(m2)
+plot(sim.m2)
 
 # Check overdispersion
-E1 <- resid(m1, type = "pearson")
+E1 <- resid(m2, type = "pearson")
 N <- nrow(d.lg)
-p <- length(coef(m1)) + 1
+p <- length(coef(m2)) + 1
 overdispersion <- sum(E1^2) / (N-p)
 overdispersion # looks good
 
 # Dharma package
-testDispersion(sim.m1)
+testDispersion(sim.m2)
 dev.new()
-plotResiduals(sim.m1, d.lg$Days.since.start, quantreg = TRUE)
-plotResiduals(sim.m1, form = d.lg$Biomass)
-testOutliers(sim.m1)
-testQuantiles(sim.m1)
-testCategorical(sim.m1, catPred = d.lg$Fence)
-testUniformity(sim.m1, alternative = c('two.sided'))
+plotResiduals(sim.m2, d.lg$Days.since.start, quantreg = TRUE)
+plotResiduals(sim.m2, form = d.lg$Biomass)
+testOutliers(sim.m2)
+testQuantiles(sim.m2)
+testCategorical(sim.m2, catPred = d.lg$Fence)
+testUniformity(sim.m2, alternative = c('two.sided'))
 
 # Compare observed and residuals
 plot(Flies.hr ~ Fence, data = d.lg)
@@ -163,11 +210,11 @@ plot(exp(preds.lm) ~ d.lg$Days.since.start)
 plot(predict(m1), residuals(m1, type = 'working'))
 
 # Check cooks
-dev.new()
-png(filename="Output/1_Fly-surveys/Cooks-distance.png")
-plot(cooks.distance(m1), main = 'Fly survey model Cook distance')
-abline(h = 4/nrow(d.lg), lty = 2, col = "steelblue")
-dev.off()
+# dev.new()
+# png(filename="Output/1_Fly-surveys/Cooks-distance.png")
+# plot(cooks.distance(m1), main = 'Fly survey model Cook distance')
+# abline(h = 4/nrow(d.lg), lty = 2, col = "steelblue")
+# dev.off()
 # 5 influential values
 
 # Compare observed and predicted
@@ -179,234 +226,242 @@ d.lg$residuals = residuals(m1, type = 'pearson')  # save the residual values
 scatter.smooth(d.lg$Days.since.start, d.lg$residuals)
 scatter.smooth(d.lg$Biomass, d.lg$residuals)
 
+check_singularity(m2)
+
 ## --------------- Model results -----------------------------------------------
 
-1 - (m1$deviance/m1$null.deviance) # 34.8%
+# Explained variance
+logLik_full <- logLik(m2)
+null <- glmmTMB(Flies.hr ~ 1, family = 'nbinom2', data = d.lg)
+logLik_null <- logLik(null)
+1 - (as.numeric(logLik_full) / as.numeric(logLik_null))
 
-emmeans(m1, pairwise~Fence, type ='response')
-confint(emmeans(m1, pairwise~Fence, type ='response'))
+# Effect sizes
+mean_day <- mean(d.lg$Days.since.start) # mean
+target_day <- 19 # target day
+c_day_19 <- target_day - mean_day
+c_day_19_sq <- c_day_19^2
 
-emtrends(m1, pairwise~Fence|Days.since.start, var = 'Biomass',
-				 regrid = c("response"))
-confint(emtrends(m1, pairwise~Fence|Days.since.start, var = 'Biomass',
-				 regrid = c("response")))
+emtrends(m2, pairwise ~ Fence, var = "Biomass", 
+         at = list(c.Days.since.start = c_day_19, c.Days_squared = c_day_19_sq),
+         regrid = "response")
 
-emtrends(m1, pairwise~Fence|Biomass, var = 'Days.since.start',
-				 regrid = c("response"))
-confint(emtrends(m1, pairwise~Fence|Biomass, var = 'Days.since.start',
-				 regrid = c("response")))
+# Days since
+coefs <- fixef(m2)$cond
+b_days <- coefs["c.Days.since.start"]
+b_days_sq <- coefs["c.Days_squared"]
+
+peak_day_centered <- -b_days / (2 * b_days_sq)
+peak_day_centered + mean_day # 19 day
+
+# 500 kg
+0.1191 * 500 # Fence
+0.0593 * 500 # Open
 
 # Rough visualizations
-emmip(m1,  ~ Fence~Biomass, mult.name = "Fence", cov.reduce = FALSE)
-
-ggplot(data=d.lg, aes(x = Biomass, y = log(flies.hr), group = Fence, color = Fence))+
-	geom_jitter()+
-	geom_abline(aes(slope=0.001551,intercept=log(2.9568697985)), color = 'red')+
-	geom_abline(aes(slope=0.000983,intercept=log(2.9568697985-0.1531859253)), 
-							color = 'blue')+
-	theme_bw() 
+emmip(m2,  ~ Fence~Biomass, mult.name = "Fence", cov.reduce = FALSE)
 
 ## --------------- Visualize predict -------------------------------------------
 
-# Create new data frame to predict from
-pred.dat <- data.frame(Days.since.start = rep(seq(8,30,1),3092),
-											 Biomass = rep(seq(55,1600,1), 46),
-											 Fence = c(rep('F', 35558),rep('O',35558)))
+# Mean
+mean_day <- mean(d.lg$Days.since.start)
 
-# Predictions from model
-preds <- predict(m1, 
-								 newdata = pred.dat, 
-								 se = T)
+# Target day
+target_day <- 19
 
-# Combine predictions to new data frame for plotting
-pred.dat <- cbind(pred.dat, fit = preds$fit)
-pred.dat <- cbind(pred.dat, se.fit = preds$se.fit)
+# Calculate the centered values FOR Day 19
+c_day_19 <- target_day - mean_day
+c_day_19_sq <- c_day_19^2
 
-# Calculate 95% CI for predictions from predicted standard errors
-pred.dat$LCL <- pred.dat$fit - (1.96*pred.dat$se.fit) # Correct?
-pred.dat$UCL <- pred.dat$fit + (1.96*pred.dat$se.fit)
+# Create pred
+pred.dat.midpoint <- expand.grid(
+  Biomass = seq(min(d.lg$Biomass), max(d.lg$Biomass), length.out = 100),
+  Fence = c('F', 'O'),
+  c.Days.since.start = c_day_19,    
+  c.Days_squared = c_day_19_sq    
+)
+
+preds <- predict(m2, 
+                 newdata = pred.dat.midpoint, 
+                 se.fit = TRUE, 
+                 type = "link")
+
+# Combine predictions
+pred.dat.midpoint$fit <- preds$fit
+pred.dat.midpoint$se.fit <- preds$se.fit
+
+pred.dat.midpoint$LCL <- pred.dat.midpoint$fit - (1.96 * pred.dat.midpoint$se.fit)
+pred.dat.midpoint$UCL <- pred.dat.midpoint$fit + (1.96 * pred.dat.midpoint$se.fit)
+
+# Back-transform
+pred.dat.midpoint$fit.resp <- exp(pred.dat.midpoint$fit)
+pred.dat.midpoint$LCL.resp <- exp(pred.dat.midpoint$LCL)
+pred.dat.midpoint$UCL.resp <- exp(pred.dat.midpoint$UCL)
 
 ## --------------- Visualize Fence*Biomass -------------------------------------
 
-# Average by date
-pred.dat.avg.date <- pred.dat |> 
-	group_by(Biomass, Fence)|>
-	summarize(fit = mean(fit),
-						LCL = mean(LCL),
-						UCL = mean(UCL))
-
-dev.new()
-biomass.int <- ggplot(data=pred.dat.avg.date, aes(x = Biomass, y = exp(fit), color = Fence))+
-	geom_ribbon(aes(ymin = exp(LCL), ymax = exp(UCL), fill = Fence), 
-							alpha = 0.4, color = NA)+
-	geom_line()+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	geom_jitter(data=d.lg, aes(x = Biomass, y = Flies.hr, 
-														 group = Fence, fill = Fence),
-							height = 0, width = 80, size = 2, stroke = 0.75, pch = 21,
-							color = 'black')+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_y_continuous(limits = c(0,200))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	ylab("Flies caught per hour")+
-	xlab('Carrion biomass')+
-	theme(axis.title = element_text(face="bold"))+
-	theme(axis.text = element_text(size = 20),
-				axis.title = element_text(size = 25))
+biomass.int <- ggplot(data = pred.dat.midpoint, aes(x = Biomass, y = fit.resp, color = Fence)) +
+    geom_ribbon(aes(ymin = LCL.resp, ymax = UCL.resp, fill = Fence), 
+                alpha = 0.4, color = NA) +
+    geom_line(linewidth = 1.2) +
+    scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+    geom_jitter(data = d.lg, aes(x = Biomass, y = Flies.hr, 
+                                group = Fence, fill = Fence),
+                height = 0, width = 20, size = 2, stroke = 0.75, pch = 21,
+                color = 'black') +
+    scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+    scale_y_continuous(limits = c(0, 250)) +
+	  scale_x_continuous(limits = c(0, 800)) +
+    theme_classic() +
+    theme(legend.position = 'none') +
+    ylab("Flies caught per hour") +
+    xlab('Carrion biomass (kg)') +
+    theme(axis.title = element_text(face = "bold")) +
+    theme(axis.text = element_text(size = 20),
+          axis.title = element_text(size = 25))+
+		theme(aspect.ratio = 1.2)
 	
 ## --------------- Visualize Fence*Time ----------------------------------------
 
-# Average by biomass
-pred.dat.avg.biomass <- pred.dat |> 
-	group_by(Days.since.start, Fence)|>
-	summarize(fit = mean(fit),
-						LCL = mean(LCL),
-						UCL = mean(UCL))
+mean_day <- mean(d.lg$Days.since.start)
+mean_biomass <- mean(d.lg$Biomass)
 
+pred.dat.midbiomass <- expand.grid(
+  Days.since.start = seq(8, 30, length.out = 100),
+  Fence = c('F', 'O'),
+  Biomass = mean_biomass
+)
 
-# Days alone no interaction with weight
-days <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(fit), color = Fence))+
-	geom_ribbon(aes(ymin = exp(LCL), ymax = exp(UCL), fill = Fence), 
-							alpha = 0.4, color = NA)+
-	geom_line()+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	geom_jitter(data=d.lg, aes(x = Days.since.start, y = Flies.hr, 
-														 group = Fence, fill = Fence),
-							size = 2, stroke = 0.75, pch = 21, height = 0, width = 0.5,
-							color = 'black')+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_y_continuous(limits = c(0,200))+
-	scale_x_continuous(limits = c(5,31),
-										 breaks = c(5,10,15,20,25, 30))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	ylab("")+
-	xlab('Days since deployment')+
-	theme(axis.title = element_text(face="bold"))+
-	theme(axis.text = element_text(size = 25),
-				axis.title = element_text(size = 30))
+pred.dat.midbiomass$c.Days.since.start <- pred.dat.midbiomass$Days.since.start - mean_day
+pred.dat.midbiomass$c.Days_squared <- pred.dat.midbiomass$c.Days.since.start^2
+
+preds <- predict(m2, 
+                 newdata = pred.dat.midbiomass, 
+                 se.fit = TRUE, 
+                 type = "link")
+
+# Combine predictions
+pred.dat.midbiomass$fit <- preds$fit
+pred.dat.midbiomass$se.fit <- preds$se.fit
+
+# Calculate 95% CI on the LINK (log) scale
+pred.dat.midbiomass$LCL <- pred.dat.midbiomass$fit - (1.96 * pred.dat.midbiomass$se.fit)
+pred.dat.midbiomass$UCL <- pred.dat.midbiomass$fit + (1.96 * pred.dat.midbiomass$se.fit)
+
+# Back-transform to the RESPONSE (fly count) scale
+pred.dat.midbiomass$fit.resp <- exp(pred.dat.midbiomass$fit)
+pred.dat.midbiomass$LCL.resp <- exp(pred.dat.midbiomass$LCL)
+pred.dat.midbiomass$UCL.resp <- exp(pred.dat.midbiomass$UCL)
+
+days <- ggplot(data = pred.dat.midbiomass, aes(x = Days.since.start, y = fit.resp, color = Fence)) +
+  geom_ribbon(aes(ymin = LCL.resp, ymax = UCL.resp, fill = Fence), 
+              alpha = 0.4, color = NA) +
+  geom_line(linewidth = 1.2) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+  geom_jitter(data = d.lg, aes(x = Days.since.start, y = Flies.hr, 
+                              group = Fence, fill = Fence),
+              size = 2, stroke = 0.75, pch = 21, height = 0, width = 0.5,
+              color = 'black') +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_y_continuous(limits = c(0, 250)) +
+  scale_x_continuous(limits = c(5, 31),
+                     breaks = c(5, 10, 15, 20, 25, 30)) +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  ylab("") +
+  xlab('Days since deployment') +
+  theme(axis.title = element_text(face = "bold")) +
+  theme(axis.text = element_text(size = 25),
+        axis.title = element_text(size = 30))
 ggsave('Figures/2_fly-surveys-time-ALL-SI.png',width = 7, height = 11, units = 'in', dpi = 300)
 
-dev.new()
-days.int <- ggplot(data=pred.dat.avg.biomass, aes(x = Days.since.start, y = exp(fit), color = Fence))+
-	geom_ribbon(aes(ymin = exp(LCL), ymax = exp(UCL), fill = Fence), 
-							alpha = 0.4, color = NA)+
-	geom_line()+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	geom_jitter(data=d.lg, aes(x = Days.since.start, y = Flies.hr, 
-														 group = Fence, fill = Fence),
-							size = 2, stroke = 0.75, pch = 21, height = 0, width = 0.5,
-							color = 'black')+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_y_continuous(limits = c(0,200))+
-	scale_x_continuous(limits = c(5,31),
-										 breaks = c(5,10,15,20,25, 30))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	ylab("")+
-	xlab('Days since deployment')+
-	theme(axis.title = element_text(face="bold"))+
-	theme(axis.text = element_text(size = 20),
-				axis.title = element_text(size = 25))+
-	facet_wrap(~Biomass, ncol = 2)+
-	theme(
-		strip.text.x = element_blank(),
-		panel.border = element_rect(colour = "black", fill=NA, linewidth = 1),
-		plot.background = element_rect(fill = "transparent", colour = NA)
-	)
+## --------------- Visualize Fence*Time at different Biomass levels ----------------
 
-## --------------- Visualize coefficients raw --------------------------------------
+mean_day <- mean(d.lg$Days.since.start)
 
-emtrends(m1, pairwise~Fence*Days.since.start, var = 'Biomass',
-				 type = "response")
+biomass_levels <- c(24.94, 58.96, 181.41, 362.81, 725.62)
+biomass_labels <- c("25 kg", "60 kg", "180 kg", "360 kg", "725 kg")
 
-emtrends(m1, pairwise~Biomass*Fence, var = 'Days.since.start')
+pred.dat.faceted <- expand.grid(
+  Days.since.start = seq(8, 30, length.out = 100), # Smooth time axis
+  Fence = c('F', 'O'),
+  Biomass = biomass_levels  # 5 user-defined levels for faceting
+)
+																				 
+pred.dat.faceted$c.Days.since.start <- pred.dat.faceted$Days.since.start - mean_day
+pred.dat.faceted$c.Days_squared <- pred.dat.faceted$c.Days.since.start^2
 
-# Coefficients are not back-transformed 
-coef <- tibble(Fence = c('Fenced', 'Open', 'Fenced', 'Open'),
-							 Trend = c('Biomass', 'Biomass', "Days", "Days"),
-							 Value = c(0.001551, 0.000983, -0.0343, -0.0179),
-							 LCL = c(0.001172, 0.000604, -0.0637, -0.0474),
-							 UCL = c(0.00193, 0.00136, -0.00485, 0.01155))
+pred.dat.faceted$Biomass_label <- factor(pred.dat.faceted$Biomass,
+                                         levels = biomass_levels,
+                                         labels = biomass_labels)
 
-# Biomass interpretation
-(exp(0.001551)-1)*100
-# For every 1 kg in biomass, flies increases by 0.16% in fenced plots
-# For every 100 kg in biomass, flies increase by 16% in fenced plots
-# For every 500 kg in biomass, flies increase by 78% in fenced plots
-# At 0 kg flies = 10, at 500 kg flies = 18
-# At 1000 kg flies = 40, at 1500 kg flies = 75
+preds <- predict(m2, 
+                 newdata = pred.dat.faceted, 
+                 se.fit = TRUE, 
+                 type = "link")
 
-(exp(0.000983)-1)*100
-# For every 1 kg in biomass, flies increases by 0.10% in fenced plots
-# For every 100 kg in biomass, flies increase by 10% in fenced plots
-# For every 500 kg in biomass, flies increase by 49% in fenced plots
-# At 0 kg flies = 10, at 500 kg flies = 18
-# At 1000 kg flies = 25, at 1500 kg flies = 75
+pred.dat.faceted$fit <- preds$fit
+pred.dat.faceted$se.fit <- preds$se.fit
+pred.dat.faceted$LCL <- pred.dat.faceted$fit - (1.96 * pred.dat.faceted$se.fit)
+pred.dat.faceted$UCL <- pred.dat.faceted$fit + (1.96 * pred.dat.faceted$se.fit)
 
-# Days interpretation
-(exp(-0.0343)-1)*100
-# For every 1 day, flies decreased by 3% in fenced plots
-# For every 5 days, flies decreased by 17% in fenced plots
-# For every 10 days, flies decreased by 34% in fenced plots
-# At 4 days flies = 45, at 20 days flies = 30
+pred.dat.faceted$fit.resp <- exp(pred.dat.faceted$fit)
+pred.dat.faceted$LCL.resp <- exp(pred.dat.faceted$LCL)
+pred.dat.faceted$UCL.resp <- exp(pred.dat.faceted$UCL)
 
-(exp(-0.0179)-1)*100
-# For every 1 day, flies decreased by 2% in fenced plots
-# For every 5 days, flies decreased by 9% in fenced plots
-# For every 10 days, flies decreased by 18% in fenced plots
-# At 4 days flies = 30, at 20 days flies = 25
+days.int <- ggplot(data = pred.dat.faceted, aes(x = Days.since.start, y = fit.resp, color = Fence)) +
+  geom_ribbon(aes(ymin = LCL.resp, ymax = UCL.resp, fill = Fence), 
+              alpha = 0.4, color = NA) +
+  geom_line(linewidth = 1) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+  geom_jitter(data = d.lg, aes(x = Days.since.start, y = Flies.hr, 
+                              group = Fence, fill = Fence),
+              size = 2, stroke = 0.75, pch = 21, height = 0, width = 0.5,
+              color = 'black', alpha = 0.3) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_y_continuous(limits = c(0, 250)) +
+  scale_x_continuous(limits = c(5, 31),
+                     breaks = c(5, 10, 15, 20, 25, 30)) +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  ylab("") +
+  xlab('Days since deployment') +
+  theme(axis.title = element_text(face = "bold")) +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25)) +
+  facet_wrap(~Biomass_label, ncol = 5) + 
+  theme(
+    strip.text.x = element_text(size = 14, face = "bold"), 
+    strip.background = element_rect(fill = "white", color = NA),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 1),
+    plot.background = element_rect(fill = "transparent", colour = NA)
+  )
+ggsave('Figures/2_fly-surveys-time-SI.png',width = 7, height = 11, units = 'in', dpi = 300)
 
-biomass <- coef |> filter(Trend == 'Biomass')
-days <- coef |> filter(Trend == 'Days')
+## --------------- Visualize coefficients raw ----------------------------------
 
-# Biomass interaction
-dev.new()
-biomass.coef <- ggplot(biomass, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
-	geom_errorbar(aes(ymin=LCL,ymax=UCL),
-								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=6.5,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
-	scale_y_continuous(limits = c(0.0005,0.002))+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	xlab("")+
-	ylab('Estimate')+
-	theme(axis.title = element_text(face="bold"))+
-	annotate('text', x = 2.1, y = 0.002, 
-					 label = "p = 0.038")+
-	theme(plot.title = element_text(hjust = 0.5))+
-	theme(axis.text = element_text(size = 10),
-				axis.title = element_text(size = 15))+
-	theme(plot.title = element_text(hjust = 0.5),
-				axis.text.x = element_blank(),
-				axis.ticks.x = element_blank())
+# Biomass 
+emtrends(m2, pairwise ~ Fence, var = "Biomass", 
+         at = list(c.Days.since.start = c_day_19, c.Days_squared = c_day_19_sq),
+         regrid = "response")
 
-# Time interaction
-dev.new()
-days.coef <- ggplot(days, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
-	geom_errorbar(aes(ymin=LCL,ymax=UCL),
-								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=6.5,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
-	scale_y_continuous(limits = c(-0.07,0.03),
-										 breaks = c(-0.06, -0.03, 0.00,
-										 					 0.03))+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	xlab("")+
-	ylab('Estimate')+
-	theme(axis.title = element_text(face="bold"))+
-	annotate('text', x = 0.7, y = 0.03, 
-					 label = "p = 0.442")+
-	theme(plot.title = element_text(hjust = 0.5))+
-	theme(axis.text = element_text(size = 10),
-				axis.title = element_text(size = 15),
-				axis.text.x = element_blank(),
-				axis.ticks.x = element_blank())
+biomass <- tibble(
+  Group = c("Fenced", "Open", "All"),
+  Metric = c("Biomass Slope (at Day 19)", "Biomass Slope (at Day 19)", "Peak Fly Abundance"),
+  Value = c(0.1191, 0.0593, 19.41),
+  LCL = c(0.0782, 0.0329, NA),
+  UCL = c(0.1601, 0.0857, NA),
+  Units = c("Flies/kg", "Flies/kg", "Days")
+)
+
+# Days
+coefs <- fixef(m2)$cond
+b_days <- coefs["c.Days.since.start"]
+b_days_sq <- coefs["c.Days_squared"]
+
+peak_day_centered <- -b_days / (2 * b_days_sq)
+mean_day <- mean(d.lg$Days.since.start)
+peak_day_unscaled <- peak_day_centered + mean_day
 
 ## --------------- Visualize coefficients back-transformed ---------------------
 
@@ -425,102 +480,134 @@ coef <- tibble(Fence = c('Fenced', 'Open'),
 							 LCL = c(0.02165, 0.00917),
 							 UCL = c(0.0422, 0.0235))
 
-# Biomass interaction
-dev.new()
-
 biomass.coef <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 	geom_errorbar(aes(ymin=LCL,ymax=UCL),
 								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=6.5,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
+	geom_point(size=4.5,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
 	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
 	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
 	theme_classic()+
 	theme(legend.position = 'none')+
 	xlab("")+
-	ylab('Estimate')+
+	ylab('Slope estimate')+
 	theme(axis.title = element_text(face="bold"))+
-	annotate('text', x = 2.1, y = 0.04, 
-					 label = "p = 0.015")+
+	# annotate('text', x = 2.1, y = 0.04, 
+	# 				 label = "p = 0.0236")+
 	theme(plot.title = element_text(hjust = 0.5))+
-	theme(axis.text = element_text(size = 12.5),
-				axis.title = element_text(size = 15))+
+	theme(axis.text = element_text(size = 15),
+				axis.title = element_text(size = 17))+
 	theme(plot.title = element_text(hjust = 0.5),
-				axis.text.x = element_blank(),
-				axis.ticks.x = element_blank())
-
-# Time interaction
-
-emtrends(m1, pairwise~Fence*Biomass, var = 'Days.since.start',
-				 regrid = "response")
-confint(emtrends(m1, pairwise~Fence*Biomass, var = 'Days.since.start',
-								 regrid = "response")
-)
-
-# Day coefficients are back-transformed 
-coef <- tibble(Fence = c('Fenced', 'Open'),
-							 Trend = c('Biomass', 'Biomass'),
-							 Value = c(-0.704, -0.297),
-							 LCL = c(-1.33, -0.79),
-							 UCL = c(-0.0834, 0.1950))
-
-dev.new()
-days.coef <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
-	geom_errorbar(aes(ymin=LCL,ymax=UCL),
-								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=6.5,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_y_continuous(limits = c(-1.4,0.6))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	xlab("")+
-	ylab('Estimate')+
-	theme(axis.title = element_text(face="bold"))+
-	annotate('text', x = 0.7, y = 0.5, 
-					 label = "p = 0.442")+
-	theme(plot.title = element_text(hjust = 0.5))+
-	theme(axis.text = element_text(size = 10),
-				axis.title = element_text(size = 15),
 				axis.text.x = element_blank(),
 				axis.ticks.x = element_blank())
 
 ## --------------- Combine figures ---------------------------------------------
 
+library(patchwork)
 # Raw biomass
-dev.new()
 biomass.int+inset_element(biomass.coef, 0.2, 0.6, 0.6, 1, align_to = 'full')
-ggsave('Figures/1_fly-surveys.png',width = 12, height = 10, units = 'in', dpi = 300)
-
-# New
-dev.new()
-biomass.int+inset_element(biomass.coef, 0.2, 0.6, 0.6, 1, align_to = 'full')
-# ggsave('Figures/1_fly-surveys.png', width = 6, height = 12, units = 'in', dpi = 300)
+ggsave('Figures/1_fly-surveys.png',width = 10, height = 8, units = 'in', dpi = 300)
 
 # Raw days
 dev.new()
-days.int+inset_element(days.coef, 0.5445, 0.04, 0.95, 0.355, align_to = 'full')
-ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
+days/days.int
 
-# New
-dev.new()
-days.int+inset_element(days.coef, 0.5445, 0.04, 0.95, 0.355, align_to = 'full')
-# ggsave('Figures/2_fly-surveys-time-SI.png',width = 12, height = 10, units = 'in', dpi = 300)
+# Add a new label to the 'average' prediction data
+pred_data_avg <- pred.dat.midbiomass %>% 
+  mutate(Biomass_label = "Averaged")
 
+# Combine the 5-level data and the average data
+plot_data_combined <- rbind(pred.dat.faceted, pred_data_avg)
+
+# Copy the original raw data and give it the new label
+d.lg_avg <- d.lg %>% 
+  mutate(Biomass_label = "Averaged")
+
+# Now, we need to add the correct labels to your *original* raw data
+# (This assumes your 'biomass_labels' object is still in your environment)
+d.lg_faceted <- d.lg %>% 
+  mutate(Biomass_label = factor(Biomass,
+                                levels = biomass_levels,
+                                labels = biomass_labels))
+
+# Combine the raw data
+d.lg_combined <- rbind(d.lg_faceted, d.lg_avg)
+
+all_labels <- c("Averaged", "25 kg", "60 kg", "180 kg", "360 kg", "725 kg")
+
+# 2. Re-order the 'Biomass_label' column in BOTH dataframes
+plot_data_combined$Biomass_label <- factor(plot_data_combined$Biomass_label, levels = all_labels)
+d.lg_combined$Biomass_label      <- factor(d.lg_combined$Biomass_label,      levels = all_labels)
+
+ggplot(data = plot_data_combined, aes(x = Days.since.start, y = fit.resp, color = Fence)) +
+  geom_ribbon(aes(ymin = LCL.resp, ymax = UCL.resp, fill = Fence), 
+              alpha = 0.4, color = NA) +
+  geom_line(linewidth = 1) +
+ 
+  # Use the combined raw data
+  geom_jitter(data = d.lg_combined, aes(x = Days.since.start, y = Flies.hr, 
+                                        group = Fence, fill = Fence),
+              size = 2, stroke = 0.75, pch = 21, height = 0, width = 0.5,
+              color = 'black', alpha = 0.3) +
+ 
+  scale_color_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_y_continuous(limits = c(0, 250)) +
+  scale_x_continuous(limits = c(5, 31), breaks = c(5, 10, 15, 20, 25, 30)) +
+  theme_classic() +
+  ylab("Flies caught per hour") + 
+  xlab('Days since deployment') +
+ 
+  # Tell facet_wrap to make 2 columns (for a 3x2 grid)
+  facet_wrap(~Biomass_label, ncol = 2) + 
+ 
+  # --- Updated Theme Section ---
+  theme(
+    legend.position = 'none',
+    aspect.ratio = 1, # Added from your other plot
+    
+    # Text sizes from your other plot
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25, face = "bold"),
+    
+    # Facet theme elements
+    strip.text.x = element_text(size = 20, face = "bold"), # Matched to axis.text
+    strip.background = element_rect(fill = "white", color = NA),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 1)
+  )
+
+ggsave('Figures/2_fly-surveys-time-SI.png',width = 10, height = 8, units = 'in', dpi = 300)
 
 
 ## --------------- Export model information ------------------------------------
 
+library(broom)       # For tidy() and glance()
+library(htmlTable)   # For htmlTable()
+library(kableExtra)  # For save_kable()
+library(dplyr)       # For filtering
+library(broom.mixed) # For glmmmTMB
+
 # Parameter estimates
-m1.sum <- tidy(m1)
-m1.sum$estimate <- as.numeric(round(m1.sum$estimate,2))
-m1.sum$std.error <- as.numeric(round(m1.sum$std.error,2))
-m1.sum$statistic <- as.numeric(round(m1.sum$statistic,2))
-m1.sum$p.value <- as.numeric(round(m1.sum$p.value,3))
-colnames(m1.sum) <- c('Term', 'Estimate', 'SE', 'Z value', 'p value')
-htmlTable(m1.sum, align = 'l') %>%
-	save_kable(file = 'Output/1_Fly-surveys/Model-summary.png')
+m2.sum <- tidy(m2) %>%
+  filter(component == "cond") # <-- This is the main change needed
+
+m2.sum$estimate <- as.numeric(round(m2.sum$estimate, 2))
+m2.sum$std.error <- as.numeric(round(m2.sum$std.error, 2))
+m2.sum$statistic <- as.numeric(round(m2.sum$statistic, 2))
+m2.sum$p.value <- as.numeric(round(m2.sum$p.value, 3))
+
+# Select and rename columns to your preference
+m2.sum <- m2.sum %>%
+  dplyr::select(term, estimate, std.error, statistic, p.value)
+
+colnames(m2.sum) <- c('Term', 'Estimate', 'SE', 'Z value', 'p value')
+
+# Save the table
+htmlTable(m2.sum, align = 'l') %>%
+  save_kable(file = 'Output/1_Fly-surveys/Model-summary-m2.png')
 
 # Other model information
-m1.glance <- glance(m1) |> round(2)
-htmlTable(m1.glance) %>%
-	save_kable(file = 'Output/1_Fly-surveys/Model-glance.png')
+library(webshot2)
+m2.glance <- glance(m2) %>% round(2)
+
+htmlTable(m2.glance) %>%
+  save_kable(file = 'Output/1_Fly-surveys/Model-glance-m2.png')
