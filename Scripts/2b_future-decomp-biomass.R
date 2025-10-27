@@ -31,6 +31,8 @@ is.factor(d$EXPOSURE)
 # Convert to factor
 d$FENCE <- as_factor(d$FENCE)
 
+d$EXPOSURE.KG <- round(d$EXPOSURE / 2.205)
+
 # Fix the labels
 d$FENCE <- c("Open","Open","Open",
 						 "Fenced","Fenced","Fenced")
@@ -41,19 +43,20 @@ d <- d %>%
 
 ## --------------- Explore the data --------------------------------------------
 
+library(performance)
 descdist(d$LOST_BIO, discrete = FALSE) # beta or log-normal
 descdist(log(d$LOST_BIO), discrete = FALSE) # closer to beta or log-normal
 descdist(log10(d$LOST_BIO), discrete = FALSE) # closer to beta or log-normal
 
 ## --------------- Create the model --------------------------------------------
 
-mod <- lm(LOST_BIO~FENCE*EXPOSURE, d)
-Anova(lm(LOST_BIO~FENCE*EXPOSURE, d))
+mod <- lm(LOST_BIO~FENCE*EXPOSURE.KG, d)
+anova(lm(LOST_BIO~FENCE*EXPOSURE.KG, d))
+
 hist(mod$residuals)
 plot(mod$residuals)
 summary(mod)
 
-dev.new()
 check_model(mod)
 
 # Means
@@ -70,95 +73,66 @@ coef <- tibble(Fence = c('Fenced', 'Open'),
 							 LCL = c(0.00294, 0.00147),
 							 UCL = c(0.00428, 0.00282))
 
+# The model fails assumptions.
+
+## --------------- Descriptive statistics ---------------------------------------
+
+# Means
+d |>
+  group_by(FENCE) |>
+  summarize(
+    mean_lost_bio = mean(LOST_BIO),
+    .groups = 'drop'
+  )
+
+slope <- d |>
+  # Select the columns we need
+  dplyr::select(FENCE, EXPOSURE.KG, LOST_BIO) |>
+  
+  # Group by fence type
+  group_by(FENCE) |>
+  
+  # Find the min/max values for exposure and the corresponding bio loss
+  summarize(
+    low_exp_bio = LOST_BIO[EXPOSURE.KG == min(EXPOSURE.KG)],
+    high_exp_bio = LOST_BIO[EXPOSURE.KG == max(EXPOSURE.KG)],
+    low_exp_kg = min(EXPOSURE.KG),
+    high_exp_kg = max(EXPOSURE.KG)
+  ) |>
+  
+  # Now, calculate the slopes and the "per 100kg" value
+  mutate(
+    # Rise (change in biomass lost)
+    total_bio_change = high_exp_bio - low_exp_bio,
+    
+    # Run (change in kg of exposure)
+    total_exp_change_kg = high_exp_kg - low_exp_kg,
+    
+    # Descriptive slope (kg lost / kg exposure)
+    descriptive_slope = total_bio_change / total_exp_change_kg,
+    
+    # Calculate the "per 100kg" value
+    loss_per_100kg = descriptive_slope * 100
+  )
+
 ## --------------- Visualize the model -----------------------------------------
 
-# Create new data frame to predict from
-pred.dat <- data.frame(EXPOSURE = c(55,400,1600,55,400,1600),
-											 FENCE = c('Open','Open','Open','Fenced','Fenced','Fenced'))
-
-# Predictions from model
-preds <- predict(mod, 
-								 newdata = pred.dat, 
-								 se = T)
-
-# Combine predictions to new data frame for plotting
-pred.dat <- cbind(pred.dat, fit = preds$fit)
-pred.dat <- cbind(pred.dat, se.fit = preds$se.fit)
-
-# Calculate 95% CI for predictions from predicted standard errors
-pred.dat$LCL <- pred.dat$fit - (1.96*pred.dat$se.fit) # Correct?
-pred.dat$UCL <- pred.dat$fit + (1.96*pred.dat$se.fit)
-
-# Old
-ggplot(d,aes(y=LOST_BIO,x=log(EXPOSURE),color=FENCE,fill=FENCE))+
-	geom_point(size = 6.5,shape=21)+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_color_manual(values=c("black","black"))+
-	stat_smooth(method="lm",se=FALSE,show.legend = FALSE)+
-	scale_x_continuous(name="Carrion exposure (kg)",
-										 breaks=c(4.007333,5.991465,7.377759),
-										 labels=c("55","400","1600"))+
-	ylab("Biomass reduction (kg)")+
-	theme_classic()+
-	theme(legend.title = element_blank())+
-	theme(legend.position = c(0.17, 0.92))+
-	theme(text = element_text(size = 25))+
-	theme(axis.title.x = element_blank())+
-	theme(axis.title.y = element_text(face="bold", vjust=0.7))+
-		 guides(fill=guide_legend(
-                 keyheight=0.4,
-                 default.unit="inch"))
-
-# ggsave('garbage_can.jpg', width = 6, height = 6, dpi = 300)
-
 # Main figure
-p1 <- ggplot(data=pred.dat, aes(x = EXPOSURE, y = fit, color = FENCE))+
-	geom_line(linewidth = 1.75)+
-	# geom_ribbon(aes(ymin = LCL, ymax = UCL, fill = FENCE), 
-							# alpha = 0.4, color = NA)+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_color_manual(values = c('black', 'black'))+
-	geom_point(data = d, aes(x = EXPOSURE, y = LOST_BIO, fill = FENCE), 
-						 size = 8, shape = 21, color = 'black', stroke = 2)+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_x_continuous(breaks = c(0, 250, 500, 750, 1000,
-																1250, 1500))+
-	ylab("Biomass loss after X days (kg)")+ # experiment starts on July 7, 2016.
-	xlab("Initial biomass exposure (kg)")+ # pigs moved on July 22nd, 2016.
-	theme_classic()+
-	theme(axis.title = element_text(face="bold"))+
-	theme(axis.text = element_text(size = 20),
-				axis.title = element_text(size = 25),
-				legend.position = 'none')
-
-# Coefficient comparisons
-p2 <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
-	geom_errorbar(aes(ymin=LCL,ymax=UCL),
-								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=6.5,shape=21,stroke=2,
-						 position=position_dodge(width = 0.5),color='black')+
-	scale_y_continuous(limits = c(0.001,0.005))+
-	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	theme_classic()+
-	theme(legend.position = 'none')+
-	xlab("")+
-	ylab('Slope estimate')+
-	theme(axis.title = element_text(face="bold"))+
-	annotate('text', x = 1.3, y = 0.005, 
-					 label = "p = 0.022")+
-	theme(plot.title = element_text(hjust = 0.5))+
-	theme(axis.text = element_text(size = 10),
-				axis.title = element_text(size = 15))+
-	theme(plot.title = element_text(hjust = 0.5),
-				axis.text.x = element_blank(),
-				axis.ticks.x = element_blank())
-
-# Combine the figures
-dev.new()
-comb <- p1+inset_element(p2, 0.14, 0.64, 0.45, 0.97, align_to = 'full')
+p1 <- ggplot(data = d, aes(x = EXPOSURE.KG, y = LOST_BIO, color = FENCE, fill = FENCE)) +
+  geom_line(aes(group = FENCE), linewidth = 1.75) + 
+  geom_point(size = 8, shape = 21, color = 'black', stroke = 2) +
+  scale_color_manual(values = c("Fenced" = "#E7B800", "Open" = "#00AFBB")) +
+  scale_fill_manual(values = c("Fenced" = "#E7B800", "Open" = "#00AFBB")) +
+  scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) + 
+  ylab("Biomass loss (kg)") + 
+  xlab("Initial biomass exposure (kg)") + 
+  theme_classic() +
+  theme(axis.title = element_text(face = "bold")) +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.position = 'none')
 
 # Output the ggplot object
-saveRDS(comb, file = "Output/2b_future-biomass-fig.RDS")
+saveRDS(p1, file = "Output/2b_future-biomass-fig.RDS")
 
 
