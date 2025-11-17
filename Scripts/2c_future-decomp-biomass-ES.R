@@ -26,15 +26,14 @@ d <- read.csv("Clean-data/2c_future-decomp-biomass-ES.csv")
 
 ## --------------- Run the models ----------------------------------------------
 
-# mod <- lm(effect.magnitude~Treatment, d = d)
-# summary(mod)
-# test(emtrends(mod, ~0, var = 'Treatment'), null = 0)
+mod <- lm(effect.magnitude~Treatment, d = d)
+summary(mod)
+test(emtrends(mod, ~0, var = "Treatment"), null = 0)
 # 
-# mod.ln <- lm(effect.magnitude~log(Treatment), d = d)
-# summary(mod.ln)
-# test(emtrends(mod.ln, ~0, var = 'Treatment'), null = 0)
-# 
-# anova(mod, mod.ln) # 0.0026427
+mod.ln <- lm(effect.magnitude~log(Treatment), d = d)
+summary(mod.ln)
+test(emtrends(mod.ln, ~0, var = 'Treatment'), null = 0)
+
 
 ## --------------- Effect size calculations ------------------------------------
 
@@ -63,9 +62,6 @@ increase.per.100kg <- overall.rate.of.change * 100
 # Print the result
 print(paste("Estimated increase in effect size per 100 kg change:", round(increase.per.100kg, 4)))
 
-## --------------- Plot the log model ------------------------------------------
-
-# New
 p1 <- ggplot(d, aes(y = effect.magnitude, x = Treatment)) +
   geom_point(size = 6.5, shape = 21, stroke = 2) +
   scale_y_continuous(name = "Effect magnitude",
@@ -73,7 +69,8 @@ p1 <- ggplot(d, aes(y = effect.magnitude, x = Treatment)) +
                      limits = c(0.1, 0.38)) +
   theme_classic() +
   theme(legend.title = element_blank()) +
-  scale_x_continuous(breaks = c(0, 200, 400, 600, 800)) + 
+	scale_x_continuous(breaks = c(0, 200, 400, 600, 800),
+										 limits = c(0,800))+
   xlab("Initial biomass exposure (kg)") +
   theme_classic() +
   theme(axis.title = element_text(face = "bold")) +
