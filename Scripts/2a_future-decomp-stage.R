@@ -42,7 +42,8 @@ p1 <- ggplot(d,aes(y=Stage,x=Pig.biomass,color=Fence,fill=Fence))+
 	scale_color_manual(values=c("black","black"))+
 	theme_classic()+
 	theme(legend.title = element_blank())+
-	scale_x_continuous(breaks = c(0, 200, 400, 600, 800))+
+	scale_x_continuous(breaks = c(0, 200, 400, 600, 800),
+										 limits = c(0,800))+
 	scale_y_continuous(breaks = c(1,2,3,4,5),
 										 limits = c(1,5))+
 	xlab("Initial biomass exposure (kg)")+

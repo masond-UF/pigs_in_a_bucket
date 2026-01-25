@@ -318,8 +318,8 @@ biomass.int <- ggplot(data = pred.dat.midpoint, aes(x = Biomass, y = fit.resp, c
     xlab('Carrion biomass (kg)') +
     theme(axis.title = element_text(face = "bold")) +
     theme(axis.text = element_text(size = 20),
-          axis.title = element_text(size = 25))+
-		theme(aspect.ratio = 1.2)
+          axis.title = element_text(size = 25))
+		# theme(aspect.ratio = 1.2)
 	
 ## --------------- Visualize Fence*Time ----------------------------------------
 
@@ -483,7 +483,7 @@ coef <- tibble(Fence = c('Fenced', 'Open'),
 biomass.coef <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 	geom_errorbar(aes(ymin=LCL,ymax=UCL),
 								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=4.5,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
+	geom_point(size=2,shape=21,stroke=2,position=position_dodge(width = 0.5),color='black')+
 	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
 	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
 	theme_classic()+
@@ -494,8 +494,8 @@ biomass.coef <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 	# annotate('text', x = 2.1, y = 0.04, 
 	# 				 label = "p = 0.0236")+
 	theme(plot.title = element_text(hjust = 0.5))+
-	theme(axis.text = element_text(size = 15),
-				axis.title = element_text(size = 17))+
+	theme(axis.text = element_text(size = 10),
+				axis.title = element_text(size = 12))+
 	theme(plot.title = element_text(hjust = 0.5),
 				axis.text.x = element_blank(),
 				axis.ticks.x = element_blank())
@@ -504,7 +504,9 @@ biomass.coef <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 
 library(patchwork)
 # Raw biomass
-biomass.int+inset_element(biomass.coef, 0.2, 0.6, 0.6, 1, align_to = 'full')
+p1 <- biomass.int+inset_element(biomass.coef, 0.01, 0.65, 0.25, 0.99, align_to = 'panel')
+saveRDS(p1, file = "Output/1_fly-survey-fig.RDS")
+
 ggsave('Figures/1_fly-surveys.png',width = 10, height = 8, units = 'in', dpi = 300)
 
 # Raw days
@@ -563,7 +565,7 @@ ggplot(data = plot_data_combined, aes(x = Days.since.start, y = fit.resp, color 
   # --- Updated Theme Section ---
   theme(
     legend.position = 'none',
-    aspect.ratio = 1, # Added from your other plot
+#    aspect.ratio = 1, # Added from your other plot
     
     # Text sizes from your other plot
     axis.text = element_text(size = 20),
@@ -601,9 +603,9 @@ m2.sum <- m2.sum %>%
 
 colnames(m2.sum) <- c('Term', 'Estimate', 'SE', 'Z value', 'p value')
 
-# Save the table
-htmlTable(m2.sum, align = 'l') %>%
-  save_kable(file = 'Output/1_Fly-surveys/Model-summary-m2.png')
+# Save the table BROKEN
+# htmlTable(m2.sum, align = 'l') %>%
+#   save_kable(file = 'Output/1_Fly-surveys/Model-summary-m2.png')
 
 # Other model information
 library(webshot2)

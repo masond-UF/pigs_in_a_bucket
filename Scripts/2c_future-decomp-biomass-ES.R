@@ -23,6 +23,7 @@ rm(list=ls())
 d <- read.csv("Clean-data/2c_future-decomp-biomass-ES.csv")
 # Effect size is log ratio 
 # log(biomass change in fenced/biomass change in open)
+dput(d)
 
 ## --------------- Run the models ----------------------------------------------
 

@@ -19,11 +19,15 @@ library(ggplot2)
 rm(list=ls())
 
 # Bring in the figures
+fly.survey <- readRDS(file = "Output/1_fly-survey-fig.RDS")
 decomp.stage <- readRDS(file = "Output/2a_future-decomp-stage-fig.RDS")
 biomass <- readRDS(file = "Output/2b_future-biomass-fig.RDS")
 biomass.ES <- readRDS(file = "Output/2c_future-biomass-fig-ES.RDS")
 
-comb <- (decomp.stage+ labs(x = NULL))+biomass+(biomass.ES+labs(x = NULL))
+# comb <- (decomp.stage+ labs(x = NULL))+biomass+(biomass.ES+labs(x = NULL))
+# ggsave('Figures/2_decomp-rate.png',width = 20, height = 10, 
+# 			 units = 'in', dpi = 300)
 
-ggsave('Figures/2_decomp-rate.png',width = 20, height = 10, 
+comb <- fly.survey + (decomp.stage + labs(x = NULL)) + biomass + (biomass.ES + labs(x = NULL)) + plot_layout(widths = c(1, 1))
+ggsave('Figures/3_all-combined.png',width = 12, height = 10, 
 			 units = 'in', dpi = 300)

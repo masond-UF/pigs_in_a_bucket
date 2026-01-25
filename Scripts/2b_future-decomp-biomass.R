@@ -55,7 +55,7 @@ descdist(log10(d$LOST_BIO), discrete = FALSE) # closer to beta or log-normal
 ## --------------- Create the model --------------------------------------------
 
 mod <- lm(LOST_BIO~FENCE*EXPOSURE.KG, d)
-anova(lm(LOST_BIO~FENCE*EXPOSURE.KG, d))
+Anova(lm(LOST_BIO~FENCE*EXPOSURE.KG, d), type = 3)
 
 hist(mod$residuals)
 plot(mod$residuals)
@@ -150,7 +150,8 @@ p1 <- ggplot(data=pred.dat, aes(x = EXPOSURE.KG, y = fit, color = FENCE))+
 	geom_point(data = d, aes(x = EXPOSURE.KG, y = LOST_BIO, fill = FENCE), 
 						 size = 8, shape = 21, color = 'black', stroke = 2)+
 	scale_fill_manual(values=c("#00AFBB", "#E7B800"))+
-	scale_x_continuous(breaks = c(0, 200, 400, 800))+
+	scale_x_continuous(breaks = c(0, 200, 400, 600, 800),
+										 limits = c(0, 800))+
 	ylab("Biomass loss (kg)")+
 	xlab("Initial biomass exposure (kg)")+ 
 	theme_classic()+
@@ -163,7 +164,7 @@ p1 <- ggplot(data=pred.dat, aes(x = EXPOSURE.KG, y = fit, color = FENCE))+
 p2 <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 	geom_errorbar(aes(ymin=LCL,ymax=UCL),
 								position = position_dodge(width = 0.5),color='black', width=0.2)+
-	geom_point(size=6.5,shape=21,stroke=2,
+	geom_point(size=2,shape=21,stroke=2,
 						 position=position_dodge(width = 0.5),color='black')+
 	scale_y_continuous(limits = c(0.003,0.01))+
 	scale_color_manual(values=c("#00AFBB", "#E7B800"))+
@@ -173,27 +174,20 @@ p2 <- ggplot(coef, aes(x=Fence,y=Value,color=Fence,fill=Fence))+
 	xlab("")+
 	ylab('Slope estimate')+
 	theme(axis.title = element_text(face="bold"))+
-	annotate('text', x = 2, y = 0.01, 
-					 label = "p = 0.022")+
+	# annotate('text', x = 2, y = 0.01, 
+	# 				 label = "p = 0.022")+
 	theme(plot.title = element_text(hjust = 0.5))+
 	theme(axis.text = element_text(size = 10),
-				axis.title = element_text(size = 15))+
+				axis.title = element_text(size = 12))+
 	theme(plot.title = element_text(hjust = 0.5),
 				axis.text.x = element_blank(),
 				axis.ticks.x = element_blank())
 
 # Combine the figures
 comb <- p1 +
-  inset_element(
-    p2,
-    left   = 0.07,
-    bottom = 0.65,
-    right  = 0.3,
-    top    = 0.98,
-    align_to = "full"
-  )
+  inset_element(p2, 0.01, 0.65, 0.25, 0.99, align_to = 'panel')
 
 # Output the ggplot object
-saveRDS(p1, file = "Output/2b_future-biomass-fig.RDS")
+saveRDS(comb, file = "Output/2b_future-biomass-fig.RDS")
 
 
